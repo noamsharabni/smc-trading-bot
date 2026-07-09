@@ -1,0 +1,677 @@
+{
+  "name": "My Bot",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://trading.cryptofundtrader.com/mtr-core-edge/v2/login",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"email\": \"noamsharabni@gmail.com\",\n  \"password\": \"N332200740m\",\n  \"partnerId\": \"1\"\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -48,
+        -16
+      ],
+      "id": "ae32b884-81e5-4117-8040-fbfc0061bb5d",
+      "name": "Auto Login"
+    },
+    {
+      "parameters": {
+        "jsCode": "const symbol     = $json.symbol;\nconst signal     = $json.signal;\nconst entry      = $json.entry;\nconst sl         = $json.sl;\nconst tp         = $json.tp;\nconst confidence = $json.confidence;\nconst risk_usd   = $json.risk_usd;\nconst tier       = $json.tier;\nconst rr         = $json.rr;\n\n// כיוון העסקה\nconst orderSide = signal === 'LONG' ? 'BUY' : 'SELL';\n\n// חישוב volume לפי סיכון\nconst priceDistance = Math.abs(entry - sl);\nlet volume = priceDistance > 0 ? (risk_usd / priceDistance) : 0.01;\nvolume = parseFloat(volume.toFixed(2));\nif (volume < 0.01) volume = 0.01;\n\nconst isValid = rr >= 1.5;\n\nreturn {\n    symbol          : symbol,\n    order_side      : orderSide,\n    entry_price     : entry,\n    sl_price        : sl,\n    tp_price        : tp,\n    volume_to_trade : volume,\n    rr_ratio        : rr,\n    confidence      : confidence,\n    risk_usd        : risk_usd,\n    tier            : tier,\n    is_rr_valid     : isValid,\n    status          : isValid ? '✅ עסקה אושרה' : '❌ עסקה נחסמה'\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -48
+      ],
+      "id": "b6711af7-0abd-4501-b3dc-f82fa38b908d",
+      "name": "Risk Management"
+    },
+    {
+      "parameters": {
+        "url": "https://api.binance.com/api/v3/klines",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "symbol",
+              "value": "={{ $('Set Symbols').item.json.symbol }}"
+            },
+            {
+              "name": "interval",
+              "value": "15m"
+            },
+            {
+              "name": "limit",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        592,
+        112
+      ],
+      "id": "b112e9e8-9ae3-4408-9fbd-40ae57d3f743",
+      "name": "Fetch Market Prices"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f8e8f0a2-d548-43c0-82d5-fc14d64e37bd",
+              "leftValue": "={{ $json.is_rr_valid }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f2966bcd-75c6-4a62-8262-da722860f69d",
+              "leftValue": "={{ $json.rr_ratio >= 1.5 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "b4e2d215-5cc9-42e4-85a5-cba6ae6da737",
+              "leftValue": "={{ $json.allowed == 1 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1952,
+        -48
+      ],
+      "id": "8d93e73b-3c7d-4d23-8412-2cdef0552519",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/open-order",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n    \"authToken\": \"{{ $('Auto Login').first().json.body.tradingAccounts[3].tradingApiToken }}\",\n    \"order\": {\n        \"instrument\": \"{{ $json.symbol.includes('.') ? $json.symbol : $json.symbol + '.cft' }}\",\n        \"orderSide\": \"{{ $json.order_side }}\",\n        \"volume\": {{ $json.volume_to_trade }},\n        \"type\": \"LIMIT\",\n        \"price\": {{ $json.entry_price }},\n        \"slPrice\": {{ $json.sl_price }},\n        \"tpPrice\": {{ $json.tp_price }},\n        \"isMobile\": false,\n        \"goodTillDate\": \"{{ new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString() }}\"\n    }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2192,
+        -64
+      ],
+      "id": "d467954c-36f9-4359-95fe-54708a47f78d",
+      "name": "position/open",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "const loginData = $('Auto Login').first().json.headers;\nif (loginData) {\n    const rawCookie = loginData['set-cookie'] || loginData['Set-Cookie'];\n    const cookieArray = Array.isArray(rawCookie) ? rawCookie : [rawCookie];\n    \n    // חילוץ רק הערך הראשון לפני הפסיק (בלי Path, Domain וכו')\n    const cleanCookies = cookieArray\n        .map(c => c.split(';')[0].trim())\n        .filter(c => !c.startsWith('co-auth=;') && !c.startsWith('rt=;'))\n        .join('; ');\n    \n    return { json: { cookie: cleanCookies } };\n}\nreturn { json: { cookie: \"Header not found\" } };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -384,
+        240
+      ],
+      "id": "4529d979-088a-4f5f-adf3-7465d6dad146",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n    { json: { symbol: \"BTCUSDT\" } },\n    { json: { symbol: \"ETHUSDT\" } },\n    { json: { symbol: \"SOLUSDT\" } },\n    { json: { symbol: \"AVAXUSDT\" } }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        0,
+        240
+      ],
+      "id": "506b72e5-ba11-421d-806e-d2cccd673505",
+      "name": "Set Symbols"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet best = null;\nfor (const item of items) {\n    const d = item.json;\n    if (d.signal === 'SKIP') continue;\n    if (d.confidence < 0.50) continue;\n    if (!best || d.confidence > best.confidence) {\n        best = d;\n    }\n}\nif (!best) return [{ json: { signal: 'SKIP', reason: 'No high confidence setups' } }];\nreturn [{\n    json: {\n        symbol        : best.symbol,\n        signal        : best.direction,\n        entry         : best.entry,\n        sl            : best.sl,\n        tp            : best.tp,\n        confidence    : best.confidence,\n        risk_usd      : best.risk_usd,\n        tier          : best.tier,\n        rr            : best.rr,\n        recent_signals: [{ type: best.direction === 'LONG' ? 'bullish' : 'bearish' }]\n    }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        208
+      ],
+      "id": "56762959-2ff1-4297-a000-4c34819bbc13",
+      "name": "SMC Ranker"
+    },
+    {
+      "parameters": {
+        "jsCode": "const symbol = $json.symbol;\nconst allowedSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'EURUSD'];\nif (!allowedSymbols.includes(symbol)) {\n    return [{\n        json: {\n            ...($json),\n            allowed: 0,\n            is_rr_valid: false,\n            reason: `Symbol ${symbol} not supported`\n        }\n    }];\n}\nconst now = new Date();\nconst day = now.getUTCDay();\nif (day === 5 || day === 6 || day === 0) {\n    return [{ json: { ...($json), allowed: 0, is_rr_valid: false, reason: '📅 סוף שבוע - אין מסחר' } }];\n}\n// בדיקת active-orders (PENDING)\nconst pendingItems = $('Positions Amount').all();\nconst openSymbols = new Set();\nfor (const item of pendingItems) {\n    const orders = item.json.orders || [];\n    for (const order of orders) {\n        const s = order.symbol?.replace('.cft', '').replace('.b', '').toUpperCase();\n        if (s) openSymbols.add(s);\n    }\n}\n// בדיקת open-positions (פתוחות)\nconst openItems = $('Position Amount 2').all();\nfor (const item of openItems) {\n    const positions = item.json.positions || [];\n    for (const pos of positions) {\n        const s = pos.symbol?.replace('.cft', '').replace('.b', '').toUpperCase();\n        if (s) openSymbols.add(s);\n    }\n}\n\nconst symbolNormalized = symbol.replace('.cft', '').replace('.b', '').toUpperCase();\nif (openSymbols.has(symbolNormalized)) {\n    return [{ json: { ...($json), allowed: 0, is_rr_valid: false, reason: `💼 יש פוזיציה פתוחה על ${symbol}` } }];\n}\nreturn [{ json: { ...($json), allowed: 1 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        -48
+      ],
+      "id": "8ff16071-bb0a-45c1-bc4a-da5f28397464",
+      "name": "KILL SWITCH"
+    },
+    {
+      "parameters": {
+        "chatId": "6437695454",
+        "text": "=🚀 פוזיציה חדשה נפתחה בהצלחה!\n🆔 מספר הזמנה: {{ $json.orderId }}\n🪙 נכס: {{ $('Risk Management').item.json.symbol }}\n↕️ פעולה: {{ $('Risk Management').item.json.order_side }}\n📈 מחיר כניסה: {{ $('Risk Management').item.json.entry_price }}\n📊 ווליום: {{ $('Risk Management').item.json.volume_to_trade }}\n🤖 ביטחון המודל: {{ $('Risk Management').item.json.confidence * 100 }}%\n⭐ רמת סיכון: {{ $('Risk Management').item.json.tier }}\n🛡️ רמות הגנה:\n🛑 סטופ לוס: {{ $('Risk Management').item.json.sl_price }}\n🎯 טייק פרופיט: {{ $('Risk Management').item.json.tp_price }}\n📉 יחס R:R: {{ $('Risk Management').item.json.rr_ratio }}\n💳 יתרה: {{ $('Get Balance').first().json.balance }}$",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2384,
+        -64
+      ],
+      "id": "54b7011c-766c-4a44-b49e-e639db99478e",
+      "name": "UPDATE",
+      "webhookId": "d6181093-0bf0-48fc-b495-ac5f92f3a8d3",
+      "retryOnFail": true,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "telegramApi": {
+          "id": "zToU4DM7xc82rZoc",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://trading.cryptofundtrader.com/mtr-api/064e5cf1-6c6e-4a80-be99-2160393d69df/balance",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $('Code').item.json.cookie }}"
+            },
+            {
+              "name": "auth-trading-api",
+              "value": "={{ $('Auto Login').item.json.body.tradingAccounts[3].tradingApiToken }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -176,
+        240
+      ],
+      "id": "49232a3b-11ac-453c-879d-a32ee386d016",
+      "name": "Get Balance"
+    },
+    {
+      "parameters": {
+        "url": "https://trading.cryptofundtrader.com/mtr-api/064e5cf1-6c6e-4a80-be99-2160393d69df/active-orders",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $('Code').item.json.cookie }}"
+            },
+            {
+              "name": "auth-trading-api",
+              "value": "= {{ $('Auto Login').first().json.body.tradingAccounts[3].tradingApiToken }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        240
+      ],
+      "id": "2424f699-0d5b-4d26-a168-b036e5b094a5",
+      "name": "Positions Amount"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -224,
+        -16
+      ],
+      "id": "30a5d38c-da95-4767-afbd-70d7fc2909a6",
+      "name": "Schedule Trigger1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst allSetups = [];\n\n// בדיקת שעה נוכחית\nconst nowHour = new Date().getUTCHours();\nif (nowHour < 8 || nowHour >= 16) {\n    return [{ json: { signal: 'SKIP', reason: 'מחוץ לשעות המסחר' } }];\n}\n\nfor (const item of items) {\n    const { symbol, ohlcv } = item.json;\n    if (!symbol || !ohlcv) continue;\n\n    const currentPrice = ohlcv[ohlcv.length - 1].close;\n\n    function detectSwings(ohlcv, swingLen=3) {\n        const n = ohlcv.length;\n        for (let i = swingLen; i < n - swingLen; i++) {\n            let isHigh = true, isLow = true;\n            for (let j = i - swingLen; j <= i + swingLen; j++) {\n                if (j === i) continue;\n                if (ohlcv[j].high >= ohlcv[i].high) isHigh = false;\n                if (ohlcv[j].low  <= ohlcv[i].low)  isLow  = false;\n            }\n            ohlcv[i].sh = isHigh;\n            ohlcv[i].sl = isLow;\n        }\n        return ohlcv;\n    }\n\n    function detectStructure(ohlcv) {\n        let trend = 'bullish', last_sh = null, last_sl = null, events = [];\n        for (let i = 0; i < ohlcv.length; i++) {\n            const c = ohlcv[i];\n            if (c.sh) last_sh = c.high;\n            if (c.sl) last_sl = c.low;\n            if (last_sh === null || last_sl === null) continue;\n            if (trend === 'bullish' && c.close < last_sl) { trend = 'bearish'; events.push({ idx: i, type: 'CHOCH', direction: 'bearish' }); }\n            else if (trend === 'bearish' && c.close > last_sh) { trend = 'bullish'; events.push({ idx: i, type: 'CHOCH', direction: 'bullish' }); }\n            else if (trend === 'bullish' && c.close > last_sh) { events.push({ idx: i, type: 'BOS', direction: 'bullish' }); }\n            else if (trend === 'bearish' && c.close < last_sl) { events.push({ idx: i, type: 'BOS', direction: 'bearish' }); }\n        }\n        return { ohlcv, events, trend };\n    }\n\n    function findOB(ohlcv, evIdx, direction) {\n        const start = Math.max(0, evIdx - 6);\n        const slice = ohlcv.slice(start, evIdx);\n        const obs = [];\n        for (const c of slice) {\n            if (direction === 'bullish' && c.close < c.open) obs.push({ top: c.open, bottom: c.close, high: c.high, low: c.low });\n            if (direction === 'bearish' && c.close > c.open) obs.push({ top: c.close, bottom: c.open, high: c.high, low: c.low });\n        }\n        return obs.slice(-3);\n    }\n\n    function isStrongBreak(ohlcv, idx) {\n        const c = ohlcv[idx];\n        const body = Math.abs(c.close - c.open);\n        const rng = c.high - c.low;\n        if (rng === 0) return false;\n        const start = Math.max(0, idx - 20);\n        const avgRange = ohlcv.slice(start, idx).reduce((s, x) => s + (x.high - x.low), 0) / (idx - start);\n        return (body / rng) >= 0.5 && (rng / avgRange) >= 1.0;\n    }\n\n    function isTradingHour(timestamp) {\n        const h = new Date(timestamp).getUTCHours();\n        return h >= 8 && h < 16;\n    }\n\n    function findTP(ohlcv, entry, sl, direction, evIdx) {\n        const lookback = Math.max(0, evIdx - 50);\n        const searchCandles = ohlcv.slice(lookback);\n        const risk = Math.abs(entry - sl);\n\n        if (direction === 'bullish') {\n            let resistanceOB = null;\n            for (const c of searchCandles) {\n                if (c.close < c.open && c.high > entry) {\n                    const obTop = c.open;\n                    if (obTop > entry) {\n                        if (!resistanceOB || obTop < resistanceOB) resistanceOB = obTop;\n                    }\n                }\n            }\n\n            const liquidityLevels = [];\n            for (const c of searchCandles) {\n                if (c.sh && c.high > entry) liquidityLevels.push(c.high);\n            }\n            liquidityLevels.sort((a, b) => a - b);\n\n            if (resistanceOB) {\n                const rr = Math.abs(resistanceOB - entry) / (risk + 0.0001);\n                if (rr >= 1.5) return resistanceOB;\n            }\n\n            for (const liq of liquidityLevels) {\n                const rr = Math.abs(liq - entry) / (risk + 0.0001);\n                if (rr >= 3 && rr <= 5) return liq;\n            }\n\n            if (liquidityLevels.length > 0) return liquidityLevels[0];\n            return entry + (risk * 3);\n\n        } else {\n            let supportOB = null;\n            for (const c of searchCandles) {\n                if (c.close > c.open && c.low < entry) {\n                    const obBottom = c.open;\n                    if (obBottom < entry) {\n                        if (!supportOB || obBottom > supportOB) supportOB = obBottom;\n                    }\n                }\n            }\n\n            const liquidityLevels = [];\n            for (const c of searchCandles) {\n                if (c.sl && c.low < entry) liquidityLevels.push(c.low);\n            }\n            liquidityLevels.sort((a, b) => b - a);\n\n            if (supportOB) {\n                const rr = Math.abs(entry - supportOB) / (risk + 0.0001);\n                if (rr >= 1.5) return supportOB;\n            }\n\n            for (const liq of liquidityLevels) {\n                const rr = Math.abs(entry - liq) / (risk + 0.0001);\n                if (rr >= 3 && rr <= 5) return liq;\n            }\n\n            if (liquidityLevels.length > 0) return liquidityLevels[0];\n            return entry - (risk * 3);\n        }\n    }\n\n    const data = detectSwings(ohlcv);\n    const { events } = detectStructure(data);\n\n    for (const ev of events) {\n        if (!isStrongBreak(data, ev.idx)) continue;\n        if (!isTradingHour(data[ev.idx].timestamp)) continue;\n        const obs = findOB(data, ev.idx, ev.direction);\n        if (!obs.length) continue;\n\n        for (const ob of obs) {\n            const entry = ev.direction === 'bullish' ? ob.top : ob.bottom;\n\n            const diff = Math.abs(entry - currentPrice) / currentPrice * 100;\n            if (diff > 3) continue;\n\n            if (ev.direction === 'bullish' && entry >= currentPrice) continue;\n            if (ev.direction === 'bearish' && entry <= currentPrice) continue;\n\n            const sl = ev.direction === 'bullish' ? ob.low * 0.998 : ob.high * 1.002;\n            const tp = findTP(data, entry, sl, ev.direction, ev.idx);\n            if (!tp) continue;\n            const risk = Math.abs(entry - sl);\n            const reward = Math.abs(tp - entry);\n            const rr = reward / (risk + 0.0001);\n            if (rr < 3) continue;\n            const rr_capped = Math.min(rr, 5.0);\n            const tp_final = ev.direction === 'bullish' ? entry + risk * rr_capped : entry - risk * rr_capped;\n            const i = ev.idx;\n            const candle = data[i];\n            const past = data.slice(Math.max(0, i-20), i);\n            const body = Math.abs(candle.close - candle.open);\n            const rng = candle.high - candle.low;\n            const avgVol = past.reduce((s,x) => s + x.volume, 0) / (past.length || 1);\n            const avgRng = past.reduce((s,x) => s + (x.high-x.low), 0) / (past.length || 1);\n            const mom3 = i >= 3 ? (candle.close - data[i-3].close) / data[i-3].close * 100 : 0;\n            const vol10 = past.slice(-10).reduce((s,x) => s + (x.high-x.low), 0) / 10;\n\n            allSetups.push({\n                symbol, direction: ev.direction === 'bullish' ? 'LONG' : 'SHORT',\n                order_side: ev.direction === 'bullish' ? 'BUY' : 'SELL',\n                entry: Math.round(entry * 100) / 100,\n                sl: Math.round(sl * 100) / 100,\n                tp: Math.round(tp_final * 100) / 100,\n                rr: Math.round(rr_capped * 100) / 100,\n                ev_type: ev.type,\n                features: {\n                    body_pct: body / (rng + 0.0001),\n                    volume_ratio: candle.volume / (avgVol + 0.0001),\n                    hour: new Date(candle.timestamp).getUTCHours(),\n                    momentum_3: mom3,\n                    volatility: vol10 / (candle.close + 0.0001) * 100,\n                    rr: rr_capped,\n                    ev_type: ev.type === 'BOS' ? 1 : 0,\n                    ob_size_ratio: (ob.top - ob.bottom) / (avgRng + 0.0001),\n                    tp_distance_pct: Math.abs(tp_final - entry) / entry * 100\n                }\n            });\n        }\n    }\n}\n\nconst seen = new Set();\nconst uniqueSetups = allSetups.filter(s => {\n    const key = `${s.symbol}-${s.entry}-${s.direction}`;\n    if (seen.has(key)) return false;\n    seen.add(key);\n    return true;\n});\n\nif (!uniqueSetups.length) return [{ json: { signal: 'SKIP', reason: 'No setups found' } }];\nreturn uniqueSetups.map(s => ({ json: s }));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1248,
+        240
+      ],
+      "id": "220eabee-d27d-42c5-8b4e-b8b231f7b689",
+      "name": "Smc bot"
+    },
+    {
+      "parameters": {
+        "jsCode": "const ort = require('onnxruntime-node');\nconst items = $input.all();\nconst results = [];\n\nconst session = await ort.InferenceSession.create(\n    'C:\\\\Users\\\\Magsihim_AI\\\\.n8n\\\\storage\\\\smc_model.onnx'\n);\n\nfor (const item of items) {\n    const d = item.json;\n    if (d.signal === 'SKIP') continue;\n\n    const f = d.features;\n    \n    // יצירת tensor ישירות עם array רגיל\n    const tensor = new ort.Tensor(\n        'float32',\n        [f.body_pct, f.volume_ratio, f.hour, f.momentum_3,\n         f.volatility, f.rr, f.ev_type, f.ob_size_ratio, f.tp_distance_pct],\n        [1, 9]\n    );\n    \n    const output = await session.run({ 'float_input': tensor });\n    const confidence = output['probabilities'].data[1];\n\n    if (confidence >= 0.80) {\n        results.push({ json: { ...d, confidence: Math.round(confidence * 1000) / 1000, risk_usd: 25, tier: 'HIGH' }});\n    } else if (confidence >= 0.50) {\n        results.push({ json: { ...d, confidence: Math.round(confidence * 1000) / 1000, risk_usd: 15, tier: 'MEDIUM' }});\n    }\n}\n\nif (!results.length) return [{ json: { signal: 'SKIP', reason: 'No high confidence setups' } }];\nresults.sort((a, b) => b.json.confidence - a.json.confidence);\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1408,
+        240
+      ],
+      "id": "44cc03e9-f929-4e20-a826-656bc7bc5c21",
+      "name": "Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\nconst cryptoSymbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT'];\nlet cryptoIndex = 0;\n\nfor (const item of items) {\n    if (item.json.ohlcv) {\n        results.push({ json: { symbol: item.json.symbol, ohlcv: item.json.ohlcv } });\n        continue;\n    }\n    \n    const symbol = cryptoSymbols[cryptoIndex];\n    cryptoIndex++;\n    const rawCandles = JSON.parse(item.json.data);\n    const ohlcv = rawCandles.map(c => ({\n        timestamp: c[0],\n        open     : parseFloat(c[1]),\n        high     : parseFloat(c[2]),\n        low      : parseFloat(c[3]),\n        close    : parseFloat(c[4]),\n        volume   : parseFloat(c[5])\n    }));\n    results.push({ json: { symbol, ohlcv } });\n}\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        240
+      ],
+      "id": "d2029fb0-92df-418c-9fe5-4dc8ed6092e3",
+      "name": "Set final symbels",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"email\": \"noamsharabni@gmail.com\",\n  \"password\": \"N332200740m\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        160,
+        -16
+      ],
+      "id": "b62ba69d-e6aa-4e83-8fb7-6f7212116964",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "url": "https://trading.cryptofundtrader.com/mtr-api/064e5cf1-6c6e-4a80-be99-2160393d69df/open-positions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Cookie",
+              "value": "={{ $('Code').item.json.cookie }}"
+            },
+            {
+              "name": "auth-trading-api",
+              "value": "= {{ $('Auto Login').first().json.body.tradingAccounts[3].tradingApiToken }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        352,
+        240
+      ],
+      "id": "53d59c4e-4dfd-462b-aca4-13c68fb94dc5",
+      "name": "Position Amount 2"
+    },
+    {
+      "parameters": {
+        "url": "https://api.twelvedata.com/time_series?symbol=EUR/USD,QQQ&interval=15min&outputsize=100&apikey=2c3b2c4126e14c22904f07685d0cc9a9",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        512,
+        400
+      ],
+      "id": "6402c7be-6557-4ced-854e-1f7c4e74689a",
+      "name": "Fetch Market Price"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst seen = new Set();\nconst results = [];\nfor (const item of items) {\n    const body = item.json;\n    \n    if (body['EUR/USD'] && !seen.has('EURUSD')) {\n        seen.add('EURUSD');\n        const values = body['EUR/USD'].values;\n        const ohlcv = values.map(c => ({\n            timestamp: new Date(c.datetime).getTime(),\n            open: parseFloat(c.open),\n            high: parseFloat(c.high),\n            low: parseFloat(c.low),\n            close: parseFloat(c.close),\n            volume: 1\n        })).reverse();\n        results.push({ json: { symbol: 'EURUSD', ohlcv } });\n    }\n    if (body['QQQ'] && !seen.has('US100')) {\n        seen.add('US100');\n        const values = body['QQQ'].values;\n        const ohlcv = values.map(c => ({\n            timestamp: new Date(c.datetime).getTime(),\n            open: parseFloat(c.open),\n            high: parseFloat(c.high),\n            low: parseFloat(c.low),\n            close: parseFloat(c.close),\n            volume: parseFloat(c.volume || 1)\n        })).reverse();\n        results.push({ json: { symbol: 'US100.b', ohlcv } });\n    }\n}\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        400
+      ],
+      "id": "4b93e418-a6ef-434b-bdc2-d27a2e735180",
+      "name": "Parse Twelve Data"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        912,
+        240
+      ],
+      "id": "d2d97b41-bc37-4ed8-8ed9-39ada6b938e5",
+      "name": "Merge",
+      "alwaysOutputData": true
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Auto Login": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Risk Management": {
+      "main": [
+        [
+          {
+            "node": "KILL SWITCH",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Market Prices": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "position/open",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "position/open": {
+      "main": [
+        [
+          {
+            "node": "UPDATE",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Get Balance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Symbols": {
+      "main": [
+        [
+          {
+            "node": "Positions Amount",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SMC Ranker": {
+      "main": [
+        [
+          {
+            "node": "Risk Management",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "KILL SWITCH": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Balance": {
+      "main": [
+        [
+          {
+            "node": "Set Symbols",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Positions Amount": {
+      "main": [
+        [
+          {
+            "node": "Position Amount 2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger1": {
+      "main": [
+        [
+          {
+            "node": "Auto Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Smc bot": {
+      "main": [
+        [
+          {
+            "node": "Model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model": {
+      "main": [
+        [
+          {
+            "node": "SMC Ranker",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set final symbels": {
+      "main": [
+        [
+          {
+            "node": "Smc bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Position Amount 2": {
+      "main": [
+        [
+          {
+            "node": "Fetch Market Price",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Market Prices",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Market Price": {
+      "main": [
+        [
+          {
+            "node": "Parse Twelve Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Twelve Data": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Set final symbels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "a4bf1e44-2017-4875-83b1-12ac5b7b2c94",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "368cafba8a31a36eeac894e1ba743a33626ad0ad6807b5d49f9b120bc5e47c3e"
+  },
+  "nodeGroups": [],
+  "id": "d1vZkc8tX2vVzmkA",
+  "tags": []
+}
