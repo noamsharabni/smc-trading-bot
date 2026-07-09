@@ -25,4 +25,4 @@ Raw SMC signals have a high false-positive rate. Instead of predicting price, th
 
 - Fully self-hosted; no third-party automation SaaS.
 - API keys and credentials are stored as n8n environment credentials, not in this repo.
-- Built and taught to myself independently as a personal project alongside Magshimim.
+- Built and taught to myself independently as a personal project.
